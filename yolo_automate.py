@@ -380,17 +380,11 @@ class AutomationEngine:
             key_name: 按键名称
 
         Returns:
-            bool: 是否触发成功
+            str: 'triggered' 触发成功，'paused' 已暂停，'missed' 错过触发
         """
         # 检查窗口是否可用
         if not self._ensure_window_visible():
-            print("错误：窗口已最小化且无法恢复，程序暂停")
-            print("请恢复窗口后按回车继续，或按 Ctrl+C 退出...")
-            try:
-                input()
-            except KeyboardInterrupt:
-                raise
-            return False
+            return 'paused'
 
         try:
             # 判断窗口是否前台
@@ -399,19 +393,19 @@ class AutomationEngine:
 
             if is_foreground:
                 # 前台：使用 pynput
-                return self._pynput_key(key_name)
+                success = self._pynput_key(key_name)
             else:
                 # 后台：使用 SendMessage
                 success = self._send_message_key(self.hwnd, key_name)
                 # SendMessage 失败时回退到 pynput
                 if not success:
-                    print("SendMessage 失败，回退到 pynput")
-                    return self._pynput_key(key_name)
-                return True
+                    success = self._pynput_key(key_name)
+
+            return 'triggered' if success else 'missed'
 
         except Exception as e:
             print(f"按键触发失败：{e}")
-            return False
+            return 'missed'
 
     def reset_cooldown(self):
         """重置冷却时间"""
@@ -562,9 +556,27 @@ def main():
         visual_enabled = config['visual_enabled']
         error_count = 0
         max_errors = 10  # 最多允许 10 次连续错误
+        paused = False  # 窗口最小化暂停标志
 
         while running:
             try:
+                # 如果程序已暂停，检查窗口是否恢复
+                if paused:
+                    try:
+                        if not win32gui.IsIconic(wincap.hwnd):
+                            print("窗口已恢复，继续运行")
+                            paused = False
+                        else:
+                            sleep(0.5)  # 暂停时轮询间隔
+                            key = cv.waitKey(1) & 0xFF
+                            if key == ord('q'):
+                                running = False
+                                break
+                            continue
+                    except Exception:
+                        sleep(0.5)
+                        continue
+
                 frame_start = time()
                 screenshot = wincap.get_screenshot()
                 coordinates = improc.process_image(screenshot)
@@ -584,9 +596,13 @@ def main():
                         distance = automation.calculate_distance(player, nearest)
                         current_time_ms = time() * 1000
                         if automation.should_trigger(distance, current_time_ms):
-                            automation.trigger_action(config['trigger_key'])
-                            automation.reset_cooldown()
-                            print(f"[触发] 距离={distance:.1f}px, 按键={config['trigger_key']}")
+                            result = automation.trigger_action(config['trigger_key'])
+                            if result == 'paused':
+                                paused = True
+                                print("程序已暂停，等待用户恢复窗口...")
+                            else:
+                                automation.reset_cooldown()
+                                print(f"[触发] 距离={distance:.1f}px, 按键={config['trigger_key']}")
 
                 if visual_enabled:
                     try:
