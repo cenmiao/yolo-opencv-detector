@@ -584,7 +584,7 @@ def main():
                         distance = automation.calculate_distance(player, nearest)
                         current_time_ms = time() * 1000
                         if automation.should_trigger(distance, current_time_ms):
-                            automation.trigger_action(automation.keyboard, config['trigger_key'])
+                            automation.trigger_action(config['trigger_key'])
                             automation.reset_cooldown()
                             print(f"[触发] 距离={distance:.1f}px, 按键={config['trigger_key']}")
 
