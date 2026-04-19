@@ -131,9 +131,11 @@ def get_user_settings(saved_config):
     use_last_weights = input("是否使用上次的权重文件？(Y/n): ").strip().lower()
     weights_file = saved_config['weights_file'] if use_last_weights != 'n' else (input("weights 文件路径：").strip() or saved_config['weights_file'])
     print(f"\n检测频率 FPS (上次：{saved_config['detection_fps']}): ", end='')
-    detection_fps = int(input().strip()) if input().strip() else saved_config['detection_fps']
+    fps_input = input().strip()
+    detection_fps = int(fps_input) if fps_input else saved_config['detection_fps']
     print(f"\n距离阈值（像素，上次：{saved_config['distance_threshold']}): ", end='')
-    distance_threshold = int(input().strip()) if input().strip() else saved_config['distance_threshold']
+    threshold_input = input().strip()
+    distance_threshold = int(threshold_input) if threshold_input else saved_config['distance_threshold']
     print(f"\n触发按键 (上次：{saved_config['trigger_key']}): ", end='')
     trigger_key = input().strip() or saved_config['trigger_key']
     print(f"\n是否开启可视化窗口？(Y/n): ", end='')
