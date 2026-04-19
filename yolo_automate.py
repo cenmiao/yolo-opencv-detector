@@ -2,7 +2,7 @@
 import json
 import math
 import os
-from time import time
+from time import time, sleep
 from pynput.keyboard import Key, KeyCode, Controller as KeyboardController
 import win32gui
 import win32ui
@@ -197,3 +197,257 @@ class ConfigManager:
             print(f"配置已保存至 {self.config_file}")
         except Exception as e:
             print(f"保存配置失败：{e}")
+
+
+class AutomationEngine:
+    """自动化引擎 - 处理距离计算、冷却、按键触发"""
+
+    def __init__(self, distance_threshold, trigger_key, cooldown_ms):
+        self.distance_threshold = distance_threshold
+        self.trigger_key = trigger_key
+        self.cooldown_ms = cooldown_ms
+        self.last_trigger_time = 0
+        self.keyboard = KeyboardController()
+
+    def calculate_distance(self, obj1, obj2):
+        """计算两个检测框中心点之间的距离（像素）"""
+        center1_x = obj1['x'] + obj1['w'] // 2
+        center1_y = obj1['y'] + obj1['h'] // 2
+        center2_x = obj2['x'] + obj2['w'] // 2
+        center2_y = obj2['y'] + obj2['h'] // 2
+        distance = math.sqrt((center2_x - center1_x) ** 2 + (center2_y - center1_y) ** 2)
+        return distance
+
+    def find_nearest_enemy(self, player, enemies):
+        """找到距离玩家最近的敌人"""
+        if not enemies:
+            return None
+        nearest = None
+        min_distance = float('inf')
+        for enemy in enemies:
+            distance = self.calculate_distance(player, enemy)
+            if distance < min_distance:
+                min_distance = distance
+                nearest = enemy
+        return nearest
+
+    def should_trigger(self, distance, current_time_ms):
+        """判断是否应该触发按键"""
+        if distance >= self.distance_threshold:
+            return False
+        elapsed_ms = current_time_ms - self.last_trigger_time
+        if elapsed_ms < self.cooldown_ms:
+            return False
+        return True
+
+    def trigger_action(self, keyboard, key_name):
+        """执行按键动作"""
+        try:
+            key = getattr(Key, key_name, None)
+            if key is None:
+                if len(key_name) == 1:
+                    key = KeyCode.from_char(key_name)
+                else:
+                    key_map = {'space': Key.space, 'enter': Key.enter, 'tab': Key.tab,
+                               'esc': Key.esc, 'shift': Key.shift, 'ctrl': Key.ctrl, 'alt': Key.alt}
+                    key = key_map.get(key_name.lower())
+            if key is not None:
+                keyboard.press(key)
+                keyboard.release(key)
+                return True
+        except Exception as e:
+            print(f"按键触发失败：{e}")
+            return False
+        return False
+
+    def reset_cooldown(self):
+        """重置冷却时间"""
+        self.last_trigger_time = time() * 1000
+
+    def get_cooldown_remaining(self, current_time_ms):
+        """获取剩余冷却时间（毫秒）"""
+        elapsed_ms = current_time_ms - self.last_trigger_time
+        return max(0, self.cooldown_ms - elapsed_ms)
+
+
+class ImageProcessor:
+    """图像处理与目标检测类"""
+
+    def __init__(self, img_size, cfg_file, weights_file):
+        np.random.seed(42)
+        if hasattr(sys, '_MEIPASS'):
+            base_path = sys._MEIPASS
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        cfg_path = cfg_file
+        if not os.path.exists(cfg_path):
+            cfg_path = os.path.join(base_path, cfg_file.lstrip('./'))
+        weights_path = weights_file
+        if not os.path.exists(weights_path):
+            weights_path = os.path.join(base_path, weights_file.lstrip('./'))
+        print(f"加载配置文件：{cfg_path}")
+        print(f"加载权重文件：{weights_path}")
+        self.net = cv.dnn.readNetFromDarknet(cfg_path, weights_path)
+        self.net.setPreferableBackend(cv.dnn.DNN_BACKEND_OPENCV)
+        self.ln = self.net.getLayerNames()
+        self.ln = [self.ln[i - 1] for i in self.net.getUnconnectedOutLayers()]
+        self.W = img_size[0]
+        self.H = img_size[1]
+        names_path = os.path.join(base_path, 'yolov4-tiny', 'obj.names')
+        if not os.path.exists(names_path):
+            names_path = 'yolov4-tiny/obj.names'
+        if not os.path.exists(names_path):
+            names_path = 'obj.names'
+        print(f"加载类别名称：{names_path}")
+        with open(names_path, 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+        for i, line in enumerate(lines):
+            self.classes[i] = line.strip()
+        self.colors = [(0, 255, 0), (0, 0, 255), (255, 0, 0), (255, 255, 0), (255, 0, 255), (0, 255, 255)]
+
+    def process_image(self, img):
+        """处理图像并返回检测结果"""
+        blob = cv.dnn.blobFromImage(img, 1 / 255.0, (416, 416), swapRB=True, crop=False)
+        self.net.setInput(blob)
+        outputs = self.net.forward(self.ln)
+        outputs = np.vstack(outputs)
+        return self.get_coordinates(outputs, 0.5)
+
+    def get_coordinates(self, outputs, conf):
+        """解析模型输出，获取检测框坐标"""
+        boxes = []
+        confidences = []
+        classIDs = []
+        for output in outputs:
+            scores = output[5:]
+            classID = np.argmax(scores)
+            confidence = scores[classID]
+            if confidence > conf:
+                x, y, w, h = output[:4] * np.array([self.W, self.H, self.W, self.H])
+                p0 = int(x - w // 2), int(y - h // 2)
+                boxes.append([*p0, int(w), int(h)])
+                confidences.append(float(confidence))
+                classIDs.append(classID)
+        indices = cv.dnn.NMSBoxes(boxes, confidences, conf, conf - 0.1)
+        if len(indices) == 0:
+            return []
+        coordinates = []
+        for i in indices.flatten():
+            (x, y) = (boxes[i][0], boxes[i][1])
+            (w, h) = (boxes[i][2], boxes[i][3])
+            coordinates.append({'x': x, 'y': y, 'w': w, 'h': h, 'class': classIDs[i],
+                               'class_name': self.classes[classIDs[i]], 'confidence': float(confidences[i])})
+        return coordinates
+
+    def draw_identified_objects(self, img, coordinates, distance_threshold=None, automation_engine=None):
+        """绘制检测结果，可选显示距离线和阈值圆"""
+        player = None
+        enemies = []
+        for coord in coordinates:
+            if coord['class_name'] == '1ziji':
+                player = coord
+            elif coord['class_name'] == '2diguihanghui':
+                enemies.append(coord)
+        for coordinate in coordinates:
+            x, y, w, h = coordinate['x'], coordinate['y'], coordinate['w'], coordinate['h']
+            classID = coordinate['class']
+            color = self.colors[classID] if classID < len(self.colors) else (255, 255, 255)
+            cv.rectangle(img, (x, y), (x + w, y + h), color, 2)
+            cv.putText(img, coordinate['class_name'], (x, y - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        if player and enemies and distance_threshold and automation_engine:
+            nearest = automation_engine.find_nearest_enemy(player, enemies)
+            if nearest:
+                player_cx, player_cy = player['x'] + player['w'] // 2, player['y'] + player['h'] // 2
+                enemy_cx, enemy_cy = nearest['x'] + nearest['w'] // 2, nearest['y'] + nearest['h'] // 2
+                cv.line(img, (player_cx, player_cy), (enemy_cx, enemy_cy), (0, 255, 255), 2)
+                distance = automation_engine.calculate_distance(player, nearest)
+                cv.putText(img, f"{distance:.1f}px", ((player_cx + enemy_cx) // 2, (player_cy + enemy_cy) // 2),
+                          cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                cv.circle(img, (player_cx, player_cy), int(distance_threshold), (0, 255, 255), 2)
+
+
+def main():
+    """主函数"""
+    print("=" * 50)
+    print("YOLO OpenCV 游戏自动化工具")
+    print("=" * 50)
+    print()
+    config_manager = ConfigManager()
+    print("[加载配置]")
+    saved_config = config_manager.load_config()
+    config = get_user_settings(saved_config)
+    if config is None:
+        print("配置失败，程序退出")
+        return
+    config_manager.save_config(config)
+    try:
+        print(f"\n正在查找窗口：{config['window_name']}...")
+        wincap = WindowCapture(config['window_name'])
+        print(f"窗口找到！尺寸：{wincap.w} x {wincap.h}")
+        print()
+        print("初始化检测模型...")
+        improc = ImageProcessor(wincap.get_window_size(), config['cfg_file'], config['weights_file'])
+        print("模型加载完成!")
+        print()
+        automation = AutomationEngine(config['distance_threshold'], config['trigger_key'], config['cooldown_ms'])
+        print(f"自动化引擎就绪：阈值={config['distance_threshold']}px, 按键={config['trigger_key']}, 冷却={config['cooldown_ms']}ms")
+        print()
+        frame_delay = 1.0 / config['detection_fps']
+        print("开始自动化检测...")
+        print(f"检测频率：{config['detection_fps']} FPS")
+        print(f"可视化：{'开启' if config['visual_enabled'] else '关闭'}")
+        print("按 'q' 退出，按 'v' 切换可视化")
+        print()
+        running = True
+        visual_enabled = config['visual_enabled']
+        while running:
+            frame_start = time()
+            screenshot = wincap.get_screenshot()
+            coordinates = improc.process_image(screenshot)
+            player = None
+            enemies = []
+            for coord in coordinates:
+                if coord['class_name'] == '1ziji':
+                    player = coord
+                elif coord['class_name'] == '2diguihanghui':
+                    enemies.append(coord)
+            if player and enemies:
+                nearest = automation.find_nearest_enemy(player, enemies)
+                if nearest:
+                    distance = automation.calculate_distance(player, nearest)
+                    current_time_ms = time() * 1000
+                    if automation.should_trigger(distance, current_time_ms):
+                        automation.trigger_action(automation.keyboard, config['trigger_key'])
+                        automation.reset_cooldown()
+                        print(f"[触发] 距离={distance:.1f}px, 按键={config['trigger_key']}")
+            if visual_enabled:
+                display_img = screenshot.copy()
+                improc.draw_identified_objects(display_img, coordinates, config['distance_threshold'], automation)
+                status_y = 30
+                cv.putText(display_img, f"FPS: {config['detection_fps']}", (10, status_y), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv.putText(display_img, f"检测到：{len(coordinates)} 个目标", (10, status_y + 30), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cooldown_remaining = automation.get_cooldown_remaining(time() * 1000)
+                status_text = f"冷却：{cooldown_remaining:.0f}ms" if cooldown_remaining > 0 else "状态：就绪"
+                status_color = (0, 0, 255) if cooldown_remaining > 0 else (0, 255, 0)
+                cv.putText(display_img, status_text, (10, status_y + 60), cv.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+                cv.imshow('YOLO Automation', display_img)
+            key = cv.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('v'):
+                visual_enabled = not visual_enabled
+                print(f"可视化已{'开启' if visual_enabled else '关闭'}")
+            elapsed = time() - frame_start
+            if elapsed < frame_delay:
+                sleep(frame_delay - elapsed)
+        print('\n检测结束。')
+    except Exception as e:
+        print(f"错误：{e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        cv.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
