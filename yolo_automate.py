@@ -7,11 +7,26 @@ from pynput.keyboard import Key, KeyCode, Controller as KeyboardController
 import win32gui
 import win32ui
 import win32con
+import win32api
 import numpy as np
 from PIL import Image
 import cv2 as cv
 
 CONFIG_FILE = "runtime-config.json"
+
+# 虚拟键码硬编码映射表（常用键）
+VK_CODE_MAP = {
+    # 修饰键
+    'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12,
+    # 功能键
+    'space': 0x20, 'enter': 0x0D, 'tab': 0x09, 'esc': 0x1B,
+    # 方向键
+    'left': 0x25, 'up': 0x26, 'right': 0x27, 'down': 0x28,
+    # 功能键 F1-F12
+    'f1': 0x70, 'f2': 0x71, 'f3': 0x72, 'f4': 0x73,
+    'f5': 0x74, 'f6': 0x75, 'f7': 0x76, 'f8': 0x77,
+    'f9': 0x78, 'f10': 0x79, 'f11': 0x7A, 'f12': 0x7B,
+}
 
 
 class WindowCapture:
