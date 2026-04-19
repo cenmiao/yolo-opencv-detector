@@ -298,6 +298,49 @@ class AutomationEngine:
             print(f"SendMessage 失败：{e}")
             return False
 
+    def _ensure_window_visible(self):
+        """
+        确保游戏窗口可见（未最小化）
+
+        Returns:
+            bool: True 如果窗口可用，False 如果需要用户干预
+        """
+        if not self.hwnd:
+            return False
+
+        if not win32gui.IsIconic(self.hwnd):
+            # 窗口未最小化，OK
+            return True
+
+        # 窗口已最小化，尝试恢复
+        try:
+            win32gui.ShowWindow(self.hwnd, win32con.SW_RESTORE)
+            sleep(0.1)  # 给系统时间恢复窗口
+            return not win32gui.IsIconic(self.hwnd)
+        except Exception as e:
+            print(f"恢复窗口失败：{e}")
+            return False
+
+    def _pynput_key(self, key_name):
+        """使用 pynput 发送按键（前台输入）"""
+        try:
+            key = getattr(Key, key_name, None)
+            if key is None:
+                if len(key_name) == 1:
+                    key = KeyCode.from_char(key_name)
+                else:
+                    key_map = {'space': Key.space, 'enter': Key.enter, 'tab': Key.tab,
+                               'esc': Key.esc, 'shift': Key.shift, 'ctrl': Key.ctrl, 'alt': Key.alt}
+                    key = key_map.get(key_name.lower())
+            if key is not None:
+                self.keyboard.press(key)
+                self.keyboard.release(key)
+                return True
+        except Exception as e:
+            print(f"pynput 按键失败：{e}")
+            return False
+        return False
+
     def calculate_distance(self, obj1, obj2):
         """计算两个检测框中心点之间的距离（像素）"""
         center1_x = obj1['x'] + obj1['w'] // 2
@@ -329,25 +372,46 @@ class AutomationEngine:
             return False
         return True
 
-    def trigger_action(self, keyboard, key_name):
-        """执行按键动作"""
+    def trigger_action(self, key_name):
+        """
+        执行按键动作 - 根据窗口状态自动选择输入方式
+
+        Args:
+            key_name: 按键名称
+
+        Returns:
+            bool: 是否触发成功
+        """
+        # 检查窗口是否可用
+        if not self._ensure_window_visible():
+            print("错误：窗口已最小化且无法恢复，程序暂停")
+            print("请恢复窗口后按回车继续，或按 Ctrl+C 退出...")
+            try:
+                input()
+            except KeyboardInterrupt:
+                raise
+            return False
+
         try:
-            key = getattr(Key, key_name, None)
-            if key is None:
-                if len(key_name) == 1:
-                    key = KeyCode.from_char(key_name)
-                else:
-                    key_map = {'space': Key.space, 'enter': Key.enter, 'tab': Key.tab,
-                               'esc': Key.esc, 'shift': Key.shift, 'ctrl': Key.ctrl, 'alt': Key.alt}
-                    key = key_map.get(key_name.lower())
-            if key is not None:
-                keyboard.press(key)
-                keyboard.release(key)
+            # 判断窗口是否前台
+            foreground_hwnd = win32gui.GetForegroundWindow()
+            is_foreground = (self.hwnd == foreground_hwnd)
+
+            if is_foreground:
+                # 前台：使用 pynput
+                return self._pynput_key(key_name)
+            else:
+                # 后台：使用 SendMessage
+                success = self._send_message_key(self.hwnd, key_name)
+                # SendMessage 失败时回退到 pynput
+                if not success:
+                    print("SendMessage 失败，回退到 pynput")
+                    return self._pynput_key(key_name)
                 return True
+
         except Exception as e:
             print(f"按键触发失败：{e}")
             return False
-        return False
 
     def reset_cooldown(self):
         """重置冷却时间"""
