@@ -378,76 +378,106 @@ def main():
     config_manager = ConfigManager()
     print("[加载配置]")
     saved_config = config_manager.load_config()
-    config = get_user_settings(saved_config)
-    if config is None:
-        print("配置失败，程序退出")
-        return
-    config_manager.save_config(config)
+
     try:
+        config = get_user_settings(saved_config)
+        if config is None:
+            print("配置失败，程序退出")
+            return
+        config_manager.save_config(config)
+
         print(f"\n正在查找窗口：{config['window_name']}...")
         wincap = WindowCapture(config['window_name'])
         print(f"窗口找到！尺寸：{wincap.w} x {wincap.h}")
         print()
+
         print("初始化检测模型...")
         improc = ImageProcessor(wincap.get_window_size(), config['cfg_file'], config['weights_file'])
         print("模型加载完成!")
         print()
+
         automation = AutomationEngine(config['distance_threshold'], config['trigger_key'], config['cooldown_ms'])
         print(f"自动化引擎就绪：阈值={config['distance_threshold']}px, 按键={config['trigger_key']}, 冷却={config['cooldown_ms']}ms")
         print()
+
         frame_delay = 1.0 / config['detection_fps']
         print("开始自动化检测...")
         print(f"检测频率：{config['detection_fps']} FPS")
         print(f"可视化：{'开启' if config['visual_enabled'] else '关闭'}")
         print("按 'q' 退出，按 'v' 切换可视化")
         print()
+
         running = True
         visual_enabled = config['visual_enabled']
+        error_count = 0
+        max_errors = 10  # 最多允许 10 次连续错误
+
         while running:
-            frame_start = time()
-            screenshot = wincap.get_screenshot()
-            coordinates = improc.process_image(screenshot)
-            player = None
-            enemies = []
-            for coord in coordinates:
-                if coord['class_name'] == '1ziji':
-                    player = coord
-                elif coord['class_name'] == '2diguihanghui':
-                    enemies.append(coord)
-            if player and enemies:
-                nearest = automation.find_nearest_enemy(player, enemies)
-                if nearest:
-                    distance = automation.calculate_distance(player, nearest)
-                    current_time_ms = time() * 1000
-                    if automation.should_trigger(distance, current_time_ms):
-                        automation.trigger_action(automation.keyboard, config['trigger_key'])
-                        automation.reset_cooldown()
-                        print(f"[触发] 距离={distance:.1f}px, 按键={config['trigger_key']}")
-            if visual_enabled:
-                display_img = screenshot.copy()
-                improc.draw_identified_objects(display_img, coordinates, config['distance_threshold'], automation)
-                status_y = 30
-                cv.putText(display_img, f"FPS: {config['detection_fps']}", (10, status_y), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv.putText(display_img, f"检测到：{len(coordinates)} 个目标", (10, status_y + 30), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cooldown_remaining = automation.get_cooldown_remaining(time() * 1000)
-                status_text = f"冷却：{cooldown_remaining:.0f}ms" if cooldown_remaining > 0 else "状态：就绪"
-                status_color = (0, 0, 255) if cooldown_remaining > 0 else (0, 255, 0)
-                cv.putText(display_img, status_text, (10, status_y + 60), cv.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
-                cv.imshow('YOLO Automation', display_img)
-            key = cv.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('v'):
-                visual_enabled = not visual_enabled
-                print(f"可视化已{'开启' if visual_enabled else '关闭'}")
-            elapsed = time() - frame_start
-            if elapsed < frame_delay:
-                sleep(frame_delay - elapsed)
+            try:
+                frame_start = time()
+                screenshot = wincap.get_screenshot()
+                coordinates = improc.process_image(screenshot)
+                error_count = 0  # 成功后重置错误计数
+
+                player = None
+                enemies = []
+                for coord in coordinates:
+                    if coord['class_name'] == '1ziji':
+                        player = coord
+                    elif coord['class_name'] == '2diguihanghui':
+                        enemies.append(coord)
+
+                if player and enemies:
+                    nearest = automation.find_nearest_enemy(player, enemies)
+                    if nearest:
+                        distance = automation.calculate_distance(player, nearest)
+                        current_time_ms = time() * 1000
+                        if automation.should_trigger(distance, current_time_ms):
+                            automation.trigger_action(automation.keyboard, config['trigger_key'])
+                            automation.reset_cooldown()
+                            print(f"[触发] 距离={distance:.1f}px, 按键={config['trigger_key']}")
+
+                if visual_enabled:
+                    try:
+                        display_img = screenshot.copy()
+                        improc.draw_identified_objects(display_img, coordinates, config['distance_threshold'], automation)
+                        status_y = 30
+                        cv.putText(display_img, f"FPS: {config['detection_fps']}", (10, status_y), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cv.putText(display_img, f"检测到：{len(coordinates)} 个目标", (10, status_y + 30), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cooldown_remaining = automation.get_cooldown_remaining(time() * 1000)
+                        status_text = f"冷却：{cooldown_remaining:.0f}ms" if cooldown_remaining > 0 else "状态：就绪"
+                        status_color = (0, 0, 255) if cooldown_remaining > 0 else (0, 255, 0)
+                        cv.putText(display_img, status_text, (10, status_y + 60), cv.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+                        cv.imshow('YOLO Automation', display_img)
+                    except Exception as draw_error:
+                        print(f"绘制错误：{draw_error}")
+                        # 可视化错误不影响检测，继续运行
+
+                key = cv.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
+                elif key == ord('v'):
+                    visual_enabled = not visual_enabled
+                    print(f"可视化已{'开启' if visual_enabled else '关闭'}")
+
+                elapsed = time() - frame_start
+                if elapsed < frame_delay:
+                    sleep(frame_delay - elapsed)
+
+            except Exception as frame_error:
+                error_count += 1
+                print(f"帧处理错误 ({error_count}/{max_errors}): {frame_error}")
+                if error_count >= max_errors:
+                    print("连续错误过多，程序退出")
+                    break
+                sleep(0.1)  # 错误时短暂延迟，避免快速重试
+
         print('\n检测结束。')
+
     except Exception as e:
-        print(f"错误：{e}")
-        import traceback
-        traceback.print_exc()
+        print(f"\n错误：{e}")
+        print("按回车键退出...")
+        input()
     finally:
         cv.destroyAllWindows()
 
