@@ -277,6 +277,7 @@ class ImageProcessor:
 
     def __init__(self, img_size, cfg_file, weights_file):
         np.random.seed(42)
+        self.classes = {}  # 初始化类别字典
         if hasattr(sys, '_MEIPASS'):
             base_path = sys._MEIPASS
         else:
