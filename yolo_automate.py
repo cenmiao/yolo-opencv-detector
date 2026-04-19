@@ -266,6 +266,37 @@ class AutomationEngine:
         print(f"警告：未知按键 '{key_name}'，使用默认 VK 码 (A)")
         return 0x41
 
+    def _send_message_key(self, hwnd, key_name):
+        """
+        使用 SendMessage 向后台窗口发送按键消息
+
+        Args:
+            hwnd: 窗口句柄
+            key_name: 按键名称
+
+        Returns:
+            bool: 是否发送成功
+        """
+        if not hwnd:
+            print("错误：窗口句柄无效")
+            return False
+
+        try:
+            vk_code = self._get_vk_code(key_name)
+
+            # 发送 WM_KEYDOWN 和 WM_KEYUP
+            # lParam: 重复计数 1 | 扫描码 1 | 扩展键标志 0 | 上下文代码 1 | 先前状态 1
+            lparam_down = 0x00000001 | (1 << 16) | (1 << 29) | (1 << 30)
+            lparam_up = 0x00000001 | (1 << 16) | (1 << 29) | (1 << 30) | (1 << 31)
+
+            win32api.SendMessage(hwnd, win32con.WM_KEYDOWN, vk_code, lparam_down)
+            win32api.SendMessage(hwnd, win32con.WM_KEYUP, vk_code, lparam_up)
+            return True
+
+        except Exception as e:
+            print(f"SendMessage 失败：{e}")
+            return False
+
     def calculate_distance(self, obj1, obj2):
         """计算两个检测框中心点之间的距离（像素）"""
         center1_x = obj1['x'] + obj1['w'] // 2
