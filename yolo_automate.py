@@ -226,6 +226,46 @@ class AutomationEngine:
         self.last_trigger_time = 0
         self.keyboard = KeyboardController()
 
+    @staticmethod
+    def _get_vk_code(key_name):
+        """
+        获取按键的虚拟键码（VK Code）
+
+        策略：优先使用硬编码映射表，非常用键使用 VkKeyScan 动态查询
+
+        Args:
+            key_name: 按键名称（如 'space', 'x', 'enter'）
+
+        Returns:
+            int: 虚拟键码
+        """
+        key_lower = key_name.lower()
+
+        # 优先使用硬编码映射
+        if key_lower in VK_CODE_MAP:
+            return VK_CODE_MAP[key_lower]
+
+        # 单字符尝试动态查询
+        if len(key_name) == 1:
+            try:
+                vk = win32api.VkKeyScan(key_name)
+                # VkKeyScan 返回低字节是 VK 码，高字节是修饰键
+                return vk & 0xFF
+            except Exception:
+                pass
+
+        # 回退：尝试大写字母
+        if len(key_name) == 1 and key_name.isalpha():
+            try:
+                vk = win32api.VkKeyScan(key_name.upper())
+                return vk & 0xFF
+            except Exception:
+                pass
+
+        # 最终回退：返回 'A' 的 VK 码并警告
+        print(f"警告：未知按键 '{key_name}'，使用默认 VK 码 (A)")
+        return 0x41
+
     def calculate_distance(self, obj1, obj2):
         """计算两个检测框中心点之间的距离（像素）"""
         center1_x = obj1['x'] + obj1['w'] // 2
