@@ -219,10 +219,11 @@ class ConfigManager:
 class AutomationEngine:
     """自动化引擎 - 处理距离计算、冷却、按键触发"""
 
-    def __init__(self, distance_threshold, trigger_key, cooldown_ms):
+    def __init__(self, distance_threshold, trigger_key, cooldown_ms, hwnd=None):
         self.distance_threshold = distance_threshold
         self.trigger_key = trigger_key
         self.cooldown_ms = cooldown_ms
+        self.hwnd = hwnd
         self.last_trigger_time = 0
         self.keyboard = KeyboardController()
 
@@ -482,7 +483,7 @@ def main():
         print("模型加载完成!")
         print()
 
-        automation = AutomationEngine(config['distance_threshold'], config['trigger_key'], config['cooldown_ms'])
+        automation = AutomationEngine(config['distance_threshold'], config['trigger_key'], config['cooldown_ms'], wincap.hwnd)
         print(f"自动化引擎就绪：阈值={config['distance_threshold']}px, 按键={config['trigger_key']}, 冷却={config['cooldown_ms']}ms")
         print()
 
