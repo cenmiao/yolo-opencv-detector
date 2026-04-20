@@ -1,0 +1,29 @@
+/obj/*
+/shuffled_images/*
+/images/
+
+/.ipynb_checkpoints/
+
+/yolov4-tiny/obj.zip
+
+/bkp/
+
+*.weights
+
+# Build outputs
+/build/
+/__pycache__/
+*.spec
+
+# Dist outputs (large files)
+dist/*.exe
+dist/*.weights
+
+# Logs
+/logs/
+
+# Worktrees
+/.worktrees/
+
+# Labels zip
+*.zip
