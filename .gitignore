@@ -18,6 +18,7 @@
 # Dist outputs (large files)
 dist/*.exe
 dist/*.weights
+dist/
 
 # Logs
 /logs/
