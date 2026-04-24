@@ -1,0 +1,10 @@
+{
+  "window_name": "统战21-24大区 - 玲珑散人a",
+  "cfg_file": "./yolov4-tiny-custom.cfg",
+  "weights_file": "./yolov4-tiny-custom_last.weights",
+  "detection_fps": 30,
+  "distance_threshold": 90,
+  "trigger_key": "1",
+  "cooldown_ms": 500,
+  "visual_enabled": true
+}
