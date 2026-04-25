@@ -212,19 +212,25 @@ class ImageProcessor:
     def __init__(self, img_size, cfg_file, weights_file):
         np.random.seed(42)
 
-        # 处理打包后的路径
-        if hasattr(sys, '_MEIPASS'):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.dirname(os.path.abspath(__file__))
+        # 获取多个可能的基路径
+        # 1. 当前工作目录（打包后 exe 在 dist 运行时，cwd 就是 dist）
+        cwd = os.getcwd()
+        # 2. exe 所在目录
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable)) if hasattr(sys, 'executable') else cwd
+        # 3. 脚本所在目录（开发模式）
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # 4. PyInstaller 临时目录（打包进 exe 的文件）
+        meipass = sys._MEIPASS if hasattr(sys, '_MEIPASS') else None
 
-        cfg_path = cfg_file
-        if not os.path.exists(cfg_path):
-            cfg_path = os.path.join(base_path, cfg_file.lstrip('./'))
+        search_paths = [cwd, exe_dir, script_dir]
+        if meipass:
+            search_paths.append(meipass)
 
-        weights_path = weights_file
-        if not os.path.exists(weights_path):
-            weights_path = os.path.join(base_path, weights_file.lstrip('./'))
+        # 查找 cfg 文件
+        cfg_path = self._find_file(cfg_file, search_paths)
+
+        # 查找 weights 文件
+        weights_path = self._find_file(weights_file, search_paths)
 
         print(f"[INFO] 加载配置: {cfg_path}")
         print(f"[INFO] 加载权重: {weights_path}")
@@ -237,12 +243,8 @@ class ImageProcessor:
         self.W = img_size[0]
         self.H = img_size[1]
 
-        # 加载类别名称
-        names_path = os.path.join(base_path, 'yolov4-tiny', 'obj.names')
-        if not os.path.exists(names_path):
-            names_path = 'yolov4-tiny/obj.names'
-        if not os.path.exists(names_path):
-            names_path = 'obj.names'
+        # 查找类别名称文件
+        names_path = self._find_file('yolov4-tiny/obj.names', search_paths)
 
         print(f"[INFO] 加载类别: {names_path}")
         with open(names_path, 'r', encoding='utf-8') as f:
@@ -255,6 +257,26 @@ class ImageProcessor:
             (0, 0, 255),    # dangeroususer - 红色
             (255, 255, 0),  # normaluser - 黄色
         ]
+
+    def _find_file(self, file_path, search_paths):
+        """在多个路径中查找文件"""
+        # 先尝试原始路径
+        if os.path.exists(file_path):
+            return file_path
+
+        # 尝试去掉 ./ 前缀
+        clean_path = file_path.lstrip('./')
+        if os.path.exists(clean_path):
+            return clean_path
+
+        # 在各个搜索路径中查找
+        for base in search_paths:
+            full_path = os.path.join(base, clean_path)
+            if os.path.exists(full_path):
+                return full_path
+
+        # 找不到，返回原始路径（会在后续报错）
+        return file_path
 
     def process_image(self, img, confidence=0.5):
         """处理图像返回检测结果"""
