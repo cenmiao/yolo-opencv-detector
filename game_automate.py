@@ -30,7 +30,7 @@ class ConfigManager:
     DEFAULT_CONFIG = {
         "window_name": "",
         "cfg_file": "./yolov4-tiny/yolov4-tiny-custom.cfg",
-        "weights_file": "./yolov4-tiny/yolov4-tiny-custom_last.weights",
+        "weights_file": "./yolov4-tiny-custom_last.weights",
         "mode": 1,
         "distance_threshold": 200,
         "trigger_key": "space",
